@@ -1,35 +1,60 @@
-import random
+# crypto/prime_utils.py
 
+import secrets
 
-# ==================================================
-# MILLER-RABIN PRIMALITY TEST (FAST + RELIABLE)
-# ==================================================
+# Danh sách các số nguyên tố nhỏ dùng để sàng lọc nhanh (Trial Division)
+# Giúp loại bỏ hơn 90% hợp số chỉ trong vài mili-giây trước khi chạy Miller-Rabin
+SMALL_PRIMES = [
+    2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 
+    71, 73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127, 131, 137, 139, 149
+]
+
+# ==============================================================================
+# KIỂM TRA SỐ NGUYÊN TỐ MILLER-RABIN ĐÃ TỐI ƯU HÓA BẢO MẬT
+# ==============================================================================
 
 def is_prime(n, k=12):
+    """
+    Kiểm tra số nguyên tố bằng thuật toán Miller-Rabin kết hợp sàng lọc nhanh.
+    Hỗ trợ tham số kiểm tra ngẫu nhiên bảo mật k lượt.
+    """
     if n < 2:
         return False
-    if n in (2, 3):
-        return True
-    if n % 2 == 0:
-        return False
+    
+    # 1. Sàng lọc nhanh bằng danh sách số nguyên tố nhỏ (Trial Division)
+    for p in SMALL_PRIMES:
+        if n == p:
+            return True
+        if n % p == 0:
+            return False
 
-    # n - 1 = d * 2^s
+    # 2. Phân tích n - 1 thành dạng d * 2^s
     d = n - 1
     s = 0
-
     while d % 2 == 0:
         d //= 2
         s += 1
 
-    # deterministic small bases (fast + good accuracy for crypto demo)
-    bases = [2, 3, 5, 7, 11, 13, 17, 19, 23]
+    # 3. Chọn tập cơ sở kiểm tra (Bases)
+    if n < 341550071728321:
+        # Nếu số nhỏ, dùng tập cơ sở cố định để đảm bảo chính xác tuyệt đối (Deterministic)
+        bases = [2, 3, 5, 7, 11, 13, 17]
+    else:
+        # Nếu số lớn (Crypto), sinh ngẫu nhiên k cơ sở bảo mật bằng thư viện 'secrets'
+        # Điều này chống lại hoàn toàn các cuộc tấn công tạo số giả nguyên tố cố định.
+        bases = []
+        while len(bases) < k:
+            # Chọn ngẫu nhiên cơ sở 'a' trong khoảng [2, n - 2]
+            a = secrets.randbelow(n - 3) + 2
+            if a not in bases:
+                bases.append(a)
 
+    # 4. Thực hiện vòng lặp kiểm tra xác suất Miller-Rabin
     for a in bases:
         if a >= n:
             continue
 
         x = pow(a, d, n)
-
         if x == 1 or x == n - 1:
             continue
 
@@ -38,62 +63,70 @@ def is_prime(n, k=12):
             if x == n - 1:
                 break
         else:
-            return False
+            return False  # Chắc chắn là hợp số (Composite)
 
-    return True
+    return True  # Xác suất cao là số nguyên tố (Probable Prime)
 
 
-# ==================================================
-# SAFE PRIME GENERATION: p = 2q + 1
-# ==================================================
+# ==============================================================================
+# SINH SỐ NGUYÊN TỐ AN TOÀN (SAFE PRIME): p = 2q + 1
+# ==============================================================================
 
 def generate_safe_prime(bits=512):
     """
-    Sinh safe prime:
-        p = 2q + 1
-        q cũng là prime
-
-    Ưu điểm:
-        - generator nhanh O(1)
-        - dùng tốt cho ElGamal / DH
-        - scale 512–2048 bits
+    Sinh số nguyên tố an toàn bảo mật cao: p = 2q + 1 (với cả p và q đều là số nguyên tố).
+    Đã được tối ưu hóa bằng 'secrets' giúp tăng tốc độ sinh và tăng tính bảo mật.
     """
-
     if bits < 32:
-        raise ValueError("Bit size too small (min 32)")
+        raise ValueError("Độ dài bit quá nhỏ, tối thiểu phải từ 32-bit trở lên.")
 
     while True:
+        # Sinh số q ngẫu nhiên bảo mật mật mã có độ dài (bits - 1)
+        q = secrets.randbits(bits - 1)
 
-        # sinh q trước
-        q = random.getrandbits(bits - 1)
-
-        # đảm bảo bit cao + số lẻ
+        # Đảm bảo bit cao nhất (MSB) luôn là 1 và số sinh ra là số lẻ
         q |= (1 << (bits - 2)) | 1
 
-        if not is_prime(q):
+        # Bước sàng lọc nhanh q chia cho các số nguyên tố nhỏ trước khi gọi hàm Miller-Rabin nặng
+        is_q_candidate_valid = True
+        for sp in SMALL_PRIMES:
+            if q > sp and q % sp == 0:
+                is_q_candidate_valid = False
+                break
+        if not is_q_candidate_valid:
             continue
 
+        # Kiểm tra chuyên sâu cho q bằng Miller-Rabin
+        if not is_prime(q, k=12):
+            continue
+
+        # Tính toán ứng viên số nguyên tố an toàn p
         p = 2 * q + 1
 
-        if is_prime(p):
+        # Sàng lọc nhanh cho p trước
+        is_p_candidate_valid = True
+        for sp in SMALL_PRIMES:
+            if p > sp and p % sp == 0:
+                is_p_candidate_valid = False
+                break
+        if not is_p_candidate_valid:
+            continue
+
+        # Kiểm tra chuyên sâu cho p bằng Miller-Rabin
+        if is_prime(p, k=12):
             return p, q
 
 
-# ==================================================
-# FAST GENERATOR FOR SAFE PRIME
-# ==================================================
+# ==============================================================================
+# SINH PHẦN TỬ SINH TỐI ƯU CHO SAFE PRIME O(1)
+# ==============================================================================
 
 def find_generator_safe_prime(p, q):
     """
-    O(1) generator search:
-    Với p = 2q + 1:
-
-    g là generator nếu:
-        g^2 != 1 mod p
-        g^q != 1 mod p
+    Tìm phần tử sinh g siêu tốc độ cho nhóm Safe Prime p = 2q + 1.
+    g là phần tử sinh hợp lệ nếu: g^2 != 1 mod p và g^q != 1 mod p.
     """
-
-    # thử nhanh các giá trị nhỏ (thường đủ)
+    # Các ứng viên nhỏ thông dụng (thường tìm thấy phần tử sinh ngay lập tức)
     small_candidates = [2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31]
 
     for g in small_candidates:
@@ -102,7 +135,7 @@ def find_generator_safe_prime(p, q):
         if pow(g, 2, p) != 1 and pow(g, q, p) != 1:
             return g
 
-    # fallback nhẹ (rất hiếm khi dùng)
+    # Trường hợp dự phòng an toàn (rất hiếm khi rơi vào đây)
     for g in range(2, min(p, 2000)):
         if pow(g, 2, p) != 1 and pow(g, q, p) != 1:
             return g
@@ -110,59 +143,17 @@ def find_generator_safe_prime(p, q):
     return None
 
 
-# ==================================================
-# OPTIONAL: STANDARD PRIME (NON SAFE PRIME)
-# ==================================================
+# ==============================================================================
+# OPTIONAL: SINH SỐ NGUYÊN TỐ THƯỜNG (STANDARD PRIME)
+# ==============================================================================
 
 def generate_prime(bits=256):
     """
-    Prime thường (không dùng safe prime).
-    Chỉ dùng nếu không cần generator tối ưu.
+    Sinh số nguyên tố thông thường (Không bắt buộc là Safe Prime).
+    Tốc độ sinh sẽ nhanh hơn rất nhiều so với Safe Prime.
     """
-
     while True:
-        p = random.getrandbits(bits)
-
-        # set MSB + ensure odd
+        p = secrets.randbits(bits)
         p |= (1 << (bits - 1)) | 1
-
-        if is_prime(p):
+        if is_prime(p, k=12):
             return p
-
-
-# ==================================================
-# OPTIONAL: OLD BRUTE FORCE GENERATOR (NOT RECOMMENDED)
-# ==================================================
-
-def find_primitive_root(p):
-    """
-    Bản cũ O(p) → không dùng cho bit lớn.
-    Giữ lại để debug.
-    """
-
-    phi = p - 1
-    factors = set()
-
-    d = phi
-    i = 2
-
-    while i * i <= d:
-        if d % i == 0:
-            factors.add(i)
-            while d % i == 0:
-                d //= i
-        i += 1
-
-    if d > 1:
-        factors.add(d)
-
-    for g in range(2, p):
-        ok = True
-        for f in factors:
-            if pow(g, phi // f, p) == 1:
-                ok = False
-                break
-        if ok:
-            return g
-
-    return None

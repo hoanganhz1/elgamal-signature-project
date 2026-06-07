@@ -1,21 +1,21 @@
 # crypto/elgamal.py
 
-import random
+import secrets
 from math import gcd
+
+from crypto.prime_utils import (
+    is_prime,
+    find_generator_safe_prime
+)
 
 
 class ElGamalSignature:
-    """
-    ElGamal Digital Signature
-    """
 
     @staticmethod
     def mod_inverse(a, m):
-        """
-        Tính nghịch đảo modulo bằng Extended Euclidean Algorithm
-        """
 
         def extended_gcd(a, b):
+
             if a == 0:
                 return b, 0, 1
 
@@ -29,25 +29,91 @@ class ElGamalSignature:
         g, x, _ = extended_gcd(a, m)
 
         if g != 1:
-            raise Exception("Modular inverse does not exist")
+            raise ValueError("Không tồn tại nghịch đảo modulo")
 
         return x % m
 
+    # ==========================================
+    # VALIDATION
+    # ==========================================
+
+    @staticmethod
+    def validate_prime(p):
+
+        if not is_prime(p):
+            raise ValueError("p không phải số nguyên tố")
+
+    @staticmethod
+    def validate_generator(p, g):
+
+        phi = p - 1
+
+        factors = set()
+
+        d = phi
+        i = 2
+
+        while i * i <= d:
+
+            if d % i == 0:
+
+                factors.add(i)
+
+                while d % i == 0:
+                    d //= i
+
+            i += 1
+
+        if d > 1:
+            factors.add(d)
+
+        for factor in factors:
+
+            if pow(g, phi // factor, p) == 1:
+                raise ValueError(
+                    f"g = {g} không phải phần tử sinh của Z*_{p}"
+                )
+
+    @staticmethod
+    def validate_public_key(public_key):
+
+        required = {"p", "g", "y"}
+
+        if not required.issubset(public_key):
+            raise ValueError("Public key không hợp lệ")
+
+        p = public_key["p"]
+        g = public_key["g"]
+        y = public_key["y"]
+
+        ElGamalSignature.validate_prime(p)
+        ElGamalSignature.validate_generator(p, g)
+
+        if not (1 < y < p):
+            raise ValueError("y không hợp lệ")
+
+    @staticmethod
+    def validate_private_key(private_key, p):
+
+        if "x" not in private_key:
+            raise ValueError("Private key không hợp lệ")
+
+        x = private_key["x"]
+
+        if not (1 < x < p - 1):
+            raise ValueError("x không hợp lệ")
+
+    # ==========================================
+    # KEY GENERATION
+    # ==========================================
+
     @staticmethod
     def generate_keys(p, g):
-        """
-        Sinh khóa ElGamal
 
-        Parameters:
-            p : số nguyên tố
-            g : phần tử sinh
+        ElGamalSignature.validate_prime(p)
+        ElGamalSignature.validate_generator(p, g)
 
-        Returns:
-            public_key
-            private_key
-        """
-
-        x = random.randint(2, p - 2)
+        x = secrets.randbelow(p - 3) + 2
 
         y = pow(g, x, p)
 
@@ -63,71 +129,99 @@ class ElGamalSignature:
 
         return public_key, private_key
 
+    # ==========================================
+    # SIGN
+    # ==========================================
+
     @staticmethod
     def sign(message_hash, private_key, public_key):
-        """
-        Ký số
 
-        Parameters:
-            message_hash : hash của văn bản (int)
-            private_key
-            public_key
-
-        Returns:
-            (r, s)
-        """
+        ElGamalSignature.validate_public_key(public_key)
 
         p = public_key["p"]
         g = public_key["g"]
+
+        ElGamalSignature.validate_private_key(
+            private_key,
+            p
+        )
+
         x = private_key["x"]
 
         while True:
 
-            k = random.randint(2, p - 2)
+            k = secrets.randbelow(p - 3) + 2
 
-            if gcd(k, p - 1) == 1:
-                break
+            if gcd(k, p - 1) != 1:
+                continue
 
-        r = pow(g, k, p)
+            r = pow(g, k, p)
 
-        k_inv = ElGamalSignature.mod_inverse(k, p - 1)
+            if r == 0:
+                continue
 
-        s = (k_inv * (message_hash - x * r)) % (p - 1)
+            k_inv = ElGamalSignature.mod_inverse(
+                k,
+                p - 1
+            )
 
-        return {
-            "r": r,
-            "s": s
-        }
+            s = (
+                k_inv *
+                (message_hash - x * r)
+            ) % (p - 1)
+
+            if s == 0:
+                continue
+
+            return {
+                "r": r,
+                "s": s
+            }
+
+    # ==========================================
+    # VERIFY
+    # ==========================================
 
     @staticmethod
     def verify(message_hash, signature, public_key):
-        """
-        Xác thực chữ ký
 
-        Parameters:
-            message_hash : hash của văn bản
-            signature : {"r":..., "s":...}
-            public_key
+        try:
 
-        Returns:
-            True / False
-        """
+            ElGamalSignature.validate_public_key(
+                public_key
+            )
 
-        p = public_key["p"]
-        g = public_key["g"]
-        y = public_key["y"]
+            p = public_key["p"]
+            g = public_key["g"]
+            y = public_key["y"]
 
-        r = signature["r"]
-        s = signature["s"]
+            if "r" not in signature:
+                return False
 
-        if r <= 0 or r >= p:
+            if "s" not in signature:
+                return False
+
+            r = signature["r"]
+            s = signature["s"]
+
+            if not (1 <= r <= p - 1):
+                return False
+
+            if not (0 <= s <= p - 2):
+                return False
+
+            left = (
+                pow(y, r, p) *
+                pow(r, s, p)
+            ) % p
+
+            right = pow(
+                g,
+                message_hash,
+                p
+            )
+
+            return left == right
+
+        except Exception:
             return False
-
-        left = (
-            pow(y, r, p) *
-            pow(r, s, p)
-        ) % p
-
-        right = pow(g, message_hash, p)
-
-        return left == right

@@ -6,7 +6,7 @@ from tkinter import messagebox
 class Dialogs:
 
     @staticmethod
-    def info(message, title="Information"):
+    def info(message, title="Thông tin"):
         """
         Hiển thị thông báo thông thường.
         """
@@ -23,7 +23,7 @@ class Dialogs:
         """
 
         messagebox.showinfo(
-            "Success",
+            "Thành công",
             message
         )
 
@@ -34,7 +34,7 @@ class Dialogs:
         """
 
         messagebox.showerror(
-            "Error",
+            "Lỗi hệ thống",
             message
         )
 
@@ -45,7 +45,7 @@ class Dialogs:
         """
 
         messagebox.showwarning(
-            "Warning",
+            "Cảnh báo",
             message
         )
 
@@ -59,7 +59,7 @@ class Dialogs:
         """
 
         return messagebox.askyesno(
-            "Confirmation",
+            "Xác nhận",
             message
         )
 
@@ -70,8 +70,8 @@ class Dialogs:
         """
 
         messagebox.showinfo(
-            "Verification",
-            "VALID SIGNATURE"
+            "Kết quả xác thực",
+            "CHỮ KÝ HỢP LỆ"
         )
 
     @staticmethod
@@ -81,6 +81,6 @@ class Dialogs:
         """
 
         messagebox.showerror(
-            "Verification",
-            "INVALID SIGNATURE"
+            "Kết quả xác thực",
+            "CHỮ KÝ KHÔNG HỢP LỆ"
         )
